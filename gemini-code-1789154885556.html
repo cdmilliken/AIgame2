@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bounce Defense - Move & Rebound</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; }
+    body {
+      margin: 0;
+      padding: 8px;
+      background: #0b0f19;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #game-card {
+      border: 3px solid #1e293b;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #0284c7;
+      box-shadow: 0 14px 36px rgba(0,0,0,0.6);
+    }
+    canvas { display: block; touch-action: none; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    .hint-bar {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #94a3b8;
+      text-align: center;
+      max-width: 440px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="game-card">
+    <canvas id="game" width="440" height="720"></canvas>
+  </div>
+  <div class="hint-bar">
+    🖱️ <b>Drag to reposition:</b> Drag already-placed items across the grid! Ball reflects off tower faces and triggers when passing adjacent trigger petals.
+  </div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// Game Meta
+let hp = 20;
+let gold = 110;
+let wave = 1;
+
+// Dimensions
+const LANE_HEIGHT = 175;
+const GRID_SIZE = 6;
+const CELL_SIZE = 52;
+const GRID_X = Math.round((canvas.width - (GRID_SIZE * CELL_SIZE)) / 2); // 64px
+const GRID_Y = 225;
+const PIPE_PAD = 18;
+
+// Re-entry Gate (Left edge at row 2)
+const GATE_ROW = 2;
+const GATE_X = GRID_X;
+const GATE_Y = GRID_Y + GATE_ROW * CELL_SIZE + CELL_SIZE / 2;
+
+// Perimeter Coordinates for outer pipe circuit
+const PIPE_L = GRID_X - PIPE_PAD;
+const PIPE_R = GRID_X + GRID_SIZE * CELL_SIZE + PIPE_PAD;
+const PIPE_T = GRID_Y - PIPE_PAD;
+const PIPE_B = GRID_Y + GRID_SIZE * CELL_SIZE + PIPE_PAD;
+
+// Bottom Shop Tray
+const TRAY_Y = 575;
+const TRAY_HEIGHT = 135;
+const TRAY_SLOTS = 4;
+const SLOT_SIZE = 60;
+const SLOT_GAP = 20;
+const TRAY_START_X = (canvas.width - (TRAY_SLOTS * SLOT_SIZE + (TRAY_SLOTS - 1) * SLOT_GAP)) / 2;
+
+// 6x6 Grid: Starts clear
+const grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
+
+// Direction Vectors
+const DIRS = [
+  { name: "UP", dr: -1, dc: 0, vx: 0, vy: -1, arrow: "⬆" },
+  { name: "RIGHT", dr: 0, dc: 1, vx: 1, vy: 0, arrow: "➡" },
+  { name: "DOWN", dr: 1, dc: 0, vx: 0, vy: 1, arrow: "⬇" },
+  { name: "LEFT", dr: 0, dc: -1, vx: -1, vy: 0, arrow: "⬅" }
+];
+
+// Ball state (orthogonal movement)
+const SPEED = 4.8;
+const ball = {
+  x: GATE_X,
+  y: GATE_Y,
+  vx: SPEED,
+  vy: 0,
+  radius: 8,
+  inPipe: false,
+  pipeDist: 0
+};
+
+// Combat Entities
+let enemies = [];
+let missiles = [];
+let lightningArcs = [];
+let explosions = [];
+let spawnClock = 0;
+let enemiesInWave = 7;
+let enemiesSpawned = 0;
+
+// Shop Tray Items
+let shopTray = [];
+
+function getRandomItem() {
+  const roll = Math.random();
+  const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
+
+  if (roll < 0.28) {
+    return { type: "rocket", cost: 30, icon: "🚀", dir: dir, pulse: 0 };
+  } else if (roll < 0.54) {
+    return { type: "tesla", cost: 35, icon: "⚡", dir: dir, pulse: 0 };
+  } else if (roll < 0.72) {
+    return { type: "bomb", cost: 40, icon: "💣", dir: dir, pulse: 0 };
+  } else if (roll < 0.88) {
+    return { type: "booster", cost: 15, icon: dir.arrow, dir: dir, pulse: 0 };
+  } else {
+    const prismTypes = ["prism-tl", "prism-tr", "prism-bl", "prism-br"];
+    const pt = prismTypes[Math.floor(Math.random() * prismTypes.length)];
+    return { type: pt, cost: 10, icon: "◢", dir: null, pulse: 0 };
+  }
+}
+
+for (let i = 0; i < TRAY_SLOTS; i++) {
+  shopTray.push(getRandomItem());
+}
+
+// Drag & Drop State
+let draggingItem = null;
+let dragSource = null; // "shop" or "grid"
+let dragOrigin = null; // { index } or { r, c }
+let dragX = 0;
+let dragY = 0;
+
+canvas.addEventListener("pointerdown", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // 1. Check if dragging an already-placed board item to REPOSITION
+  const gCol = Math.floor((mx - GRID_X) / CELL_SIZE);
+  const gRow = Math.floor((my - GRID_Y) / CELL_SIZE);
+  if (gCol >= 0 && gCol < GRID_SIZE && gRow >= 0 && gRow < GRID_SIZE) {
+    if (grid[gRow][gCol]) {
+      draggingItem = grid[gRow][gCol];
+      dragSource = "grid";
+      dragOrigin = { r: gRow, c: gCol };
+      grid[gRow][gCol] = null; // Temporarily lift off board
+      dragX = mx;
+      dragY = my;
+      return;
+    }
+  }
+
+  // 2. Check if dragging a new item from Shop Tray
+  for (let i = 0; i < TRAY_SLOTS; i++) {
+    const sx = TRAY_START_X + i * (SLOT_SIZE + SLOT_GAP);
+    const sy = TRAY_Y + 30;
+
+    if (mx >= sx && mx <= sx + SLOT_SIZE && my >= sy && my <= sy + SLOT_SIZE) {
+      const item = shopTray[i];
+      if (item && gold >= item.cost) {
+        draggingItem = { ...item };
+        dragSource = "shop";
+        dragOrigin = { index: i };
+        dragX = mx;
+        dragY = my;
+      }
+      break;
+    }
+  }
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!draggingItem) return;
+  const rect = canvas.getBoundingClientRect();
+  dragX = e.clientX - rect.left;
+  dragY = e.clientY - rect.top;
+});
+
+canvas.addEventListener("pointerup", (e) => {
+  if (!draggingItem) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const col = Math.floor((mx - GRID_X) / CELL_SIZE);
+  const row = Math.floor((my - GRID_Y) / CELL_SIZE);
+
+  const droppedOnValidTile = col >= 0 && col < GRID_SIZE && row >= 0 && row < GRID_SIZE && !grid[row][col];
+
+  if (droppedOnValidTile) {
+    // Place into target slot
+    grid[row][col] = { ...draggingItem, r: row, c: col };
+    if (dragSource === "shop") {
+      gold -= draggingItem.cost;
+      shopTray[dragOrigin.index] = getRandomItem();
+    }
+  } else {
+    // Invalid drop destination -> return to origin
+    if (dragSource === "grid") {
+      grid[dragOrigin.r][dragOrigin.c] = draggingItem;
+    }
+  }
+
+  draggingItem = null;
+  dragSource = null;
+  dragOrigin = null;
+});
+
+function spawnEnemy() {
+  enemies.push({
+    x: 40 + Math.random() * (canvas.width - 80),
+    y: -15,
+    hp: 24 + wave * 10,
+    maxHp: 24 + wave * 10,
+    speed: 0.5 + wave * 0.08,
+    radius: 12
+  });
+  enemiesSpawned++;
+}
+
+function triggerTower(tower) {
+  if (enemies.length === 0) return;
+  tower.pulse = 12;
+
+  let targets = [...enemies].sort((a, b) => b.y - a.y);
+  let prime = targets[0];
+  const cx = GRID_X + tower.c * CELL_SIZE + CELL_SIZE / 2;
+  const cy = GRID_Y + tower.r * CELL_SIZE + CELL_SIZE / 2;
+
+  if (tower.type === "rocket") {
+    missiles.push({ x: cx, y: cy, target: prime, speed: 9.5, damage: 45 });
+  } else if (tower.type === "tesla") {
+    let chained = targets.slice(0, 3);
+    for (const t of chained) {
+      t.hp -= 24;
+      lightningArcs.push({ x1: cx, y1: cy, x2: t.x, y2: t.y, life: 7 });
+      if (t.hp <= 0) removeEnemy(t);
+    }
+  } else if (tower.type === "bomb") {
+    explosions.push({ x: prime.x, y: prime.y, radius: 40, life: 10 });
+    for (const e of enemies) {
+      if (Math.hypot(e.x - prime.x, e.y - prime.y) < 45) {
+        e.hp -= 32;
+      }
+    }
+    enemies = enemies.filter(e => {
+      if (e.hp <= 0) { gold += 6; return false; }
+      return true;
+    });
+  }
+}
+
+function removeEnemy(enemy) {
+  const i = enemies.indexOf(enemy);
+  if (i > -1) {
+    enemies.splice(i, 1);
+    gold += 6;
+  }
+}
+
+function enterPipeAt(enterX, enterY) {
+  ball.inPipe = true;
+  const w = PIPE_R - PIPE_L;
+  const h = PIPE_B - PIPE_T;
+
+  if (enterY <= GRID_Y) {
+    ball.pipeDist = Math.max(0, enterX - PIPE_L);
+  } else if (enterX >= GRID_X + GRID_SIZE * CELL_SIZE) {
+    ball.pipeDist = w + (enterY - PIPE_T);
+  } else if (enterY >= GRID_Y + GRID_SIZE * CELL_SIZE) {
+    ball.pipeDist = w + h + (PIPE_R - enterX);
+  } else {
+    ball.pipeDist = 2 * w + h + (PIPE_B - enterY);
+  }
+}
+
+function updatePhysics() {
+  const w = PIPE_R - PIPE_L;
+  const h = PIPE_B - PIPE_T;
+  const perimeter = 2 * (w + h);
+
+  if (ball.inPipe) {
+    ball.pipeDist += 5.5;
+    if (ball.pipeDist >= perimeter) ball.pipeDist -= perimeter;
+
+    const d = ball.pipeDist;
+    if (d < w) {
+      ball.x = PIPE_L + d; ball.y = PIPE_T;
+    } else if (d < w + h) {
+      ball.x = PIPE_R; ball.y = PIPE_T + (d - w);
+    } else if (d < 2 * w + h) {
+      ball.x = PIPE_R - (d - (w + h)); ball.y = PIPE_B;
+    } else {
+      ball.x = PIPE_L; ball.y = PIPE_B - (d - (2 * w + h));
+      if (ball.y <= GATE_Y) {
+        ball.inPipe = false;
+        ball.x = GATE_X;
+        ball.y = GATE_Y;
+        ball.vx = SPEED;
+        ball.vy = 0;
+      }
+    }
+    return;
+  }
+
+  // Orthogonal movement
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Boundary check
+  if (
+    ball.x < GRID_X ||
+    ball.x > GRID_X + GRID_SIZE * CELL_SIZE ||
+    ball.y < GRID_Y ||
+    ball.y > GRID_Y + GRID_SIZE * CELL_SIZE
+  ) {
+    enterPipeAt(ball.x, ball.y);
+    return;
+  }
+
+  const col = Math.floor((ball.x - GRID_X) / CELL_SIZE);
+  const row = Math.floor((ball.y - GRID_Y) / CELL_SIZE);
+
+  // 1. EXTENDED TRIGGER PETALS (Trigger when ball passes through the extended tile)
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const t = grid[r][c];
+      if (!t || !t.dir || t.type === "booster") continue;
+
+      const trigR = r + t.dir.dr;
+      const trigC = c + t.dir.dc;
+
+      if (row === trigR && col === trigC) {
+        const trigPadX = GRID_X + trigC * CELL_SIZE + CELL_SIZE / 2;
+        const trigPadY = GRID_Y + trigR * CELL_SIZE + CELL_SIZE / 2;
+
+        if (Math.hypot(ball.x - trigPadX, ball.y - trigPadY) < 16 && t.pulse <= 0) {
+          triggerTower(t);
+        }
+      }
+    }
+  }
+
+  // 2. SOLID TILE HITS (Face Bouncing on Towers & Prisms)
+  if (row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE) {
+    const tile = grid[row][col];
+    const cx = GRID_X + col * CELL_SIZE + CELL_SIZE / 2;
+    const cy = GRID_Y + row * CELL_SIZE + CELL_SIZE / 2;
+
+    if (tile && Math.hypot(ball.x - cx, ball.y - cy) < 15) {
+      if (tile.type === "booster") {
+        ball.x = cx;
+        ball.y = cy;
+        ball.vx = tile.dir.vx * SPEED;
+        ball.vy = tile.dir.vy * SPEED;
+        tile.pulse = 10;
+      } else if (tile.type === "prism-tl") {
+        ball.x = cx; ball.y = cy;
+        if (ball.vx > 0) { ball.vx = 0; ball.vy = -SPEED; }
+        else if (ball.vy > 0) { ball.vy = 0; ball.vx = -SPEED; }
+        else { ball.vx = -ball.vx; ball.vy = -ball.vy; }
+      } else if (tile.type === "prism-tr") {
+        ball.x = cx; ball.y = cy;
+        if (ball.vx < 0) { ball.vx = 0; ball.vy = -SPEED; }
+        else if (ball.vy > 0) { ball.vy = 0; ball.vx = SPEED; }
+        else { ball.vx = -ball.vx; ball.vy = -ball.vy; }
+      } else if (tile.type === "prism-bl") {
+        ball.x = cx; ball.y = cy;
+        if (ball.vx > 0) { ball.vx = 0; ball.vy = SPEED; }
+        else if (ball.vy < 0) { ball.vy = 0; ball.vx = -SPEED; }
+        else { ball.vx = -ball.vx; ball.vy = -ball.vy; }
+      } else if (tile.type === "prism-br") {
+        ball.x = cx; ball.y = cy;
+        if (ball.vx < 0) { ball.vx = 0; ball.vy = SPEED; }
+        else if (ball.vy < 0) { ball.vy = 0; ball.vx = SPEED; }
+        else { ball.vx = -ball.vx; ball.vy = -ball.vy; }
+      } else {
+        // TOWER IMPACT: Clean face-rebound based on incoming velocity
+        if (ball.vx !== 0) {
+          ball.vx = -ball.vx;
+          // Step back outward so it doesn't get trapped inside
+          ball.x = cx - Math.sign(ball.vx) * 16;
+        } else if (ball.vy !== 0) {
+          ball.vy = -ball.vy;
+          ball.y = cy - Math.sign(ball.vy) * 16;
+        }
+        tile.pulse = 8;
+      }
+    }
+  }
+
+  // Pulse decay
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (grid[r][c] && grid[r][c].pulse > 0) grid[r][c].pulse--;
+    }
+  }
+}
+
+function updateCombat() {
+  spawnClock++;
+  if (spawnClock > 75 && enemiesSpawned < enemiesInWave) {
+    spawnEnemy();
+    spawnClock = 0;
+  }
+
+  if (enemiesSpawned >= enemiesInWave && enemies.length === 0) {
+    wave++;
+    enemiesInWave = 7 + wave * 3;
+    enemiesSpawned = 0;
+    gold += 35;
+  }
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.y += e.speed;
+
+    if (e.y >= LANE_HEIGHT - 10) {
+      hp--;
+      enemies.splice(i, 1);
+      if (hp <= 0) alert("Defenses fallen! Reload to retry.");
+    }
+  }
+
+  for (let i = missiles.length - 1; i >= 0; i--) {
+    const m = missiles[i];
+    const dx = m.target.x - m.x;
+    const dy = m.target.y - m.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < m.speed) {
+      m.target.hp -= m.damage;
+      if (m.target.hp <= 0) removeEnemy(m.target);
+      missiles.splice(i, 1);
+    } else {
+      m.x += (dx / dist) * m.speed;
+      m.y += (dy / dist) * m.speed;
+    }
+  }
+
+  for (let i = lightningArcs.length - 1; i >= 0; i--) {
+    lightningArcs[i].life--;
+    if (lightningArcs[i].life <= 0) lightningArcs.splice(i, 1);
+  }
+  for (let i = explosions.length - 1; i >= 0; i--) {
+    explosions[i].life--;
+    if (explosions[i].life <= 0) explosions.splice(i, 1);
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 1. Top Defense Lane
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, LANE_HEIGHT);
+
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 1;
+  for (let x = 0; x < canvas.width; x += 16) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, LANE_HEIGHT); ctx.stroke();
+  }
+  for (let y = 0; y < LANE_HEIGHT; y += 16) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  }
+
+  // Castle wall line
+  ctx.fillStyle = "#0284c7";
+  ctx.fillRect(0, LANE_HEIGHT - 8, canvas.width, 8);
+  for (let bx = 0; bx < canvas.width; bx += 20) {
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillRect(bx, LANE_HEIGHT - 16, 12, 8);
+  }
+
+  // Stats badge
+  ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+  ctx.fillRect(10, 8, 200, 26);
+  ctx.fillStyle = "#f43f5e";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(`❤️ ${hp}`, 18, 25);
+  ctx.fillStyle = "#facc15";
+  ctx.fillText(`💰 ${gold}`, 70, 25);
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillText(`🌊 W${wave}`, 130, 25);
+
+  // Invaders
+  for (const e of enemies) {
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(e.x - 3, e.y - 2, 2, 0, Math.PI * 2);
+    ctx.arc(e.x + 3, e.y - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ef4444";
+    ctx.fillRect(e.x - 10, e.y - 18, 20 * Math.max(0, e.hp / e.maxHp), 3);
+  }
+
+  // Combat FX
+  for (const m of missiles) {
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (const arc of lightningArcs) {
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(arc.x1, arc.y1);
+    ctx.lineTo((arc.x1 + arc.x2) / 2 + (Math.random() * 12 - 6), (arc.y1 + arc.y2) / 2);
+    ctx.lineTo(arc.x2, arc.y2);
+    ctx.stroke();
+  }
+  for (const exp of explosions) {
+    ctx.fillStyle = "rgba(234, 179, 8, 0.4)";
+    ctx.beginPath();
+    ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 2. Bounce Chamber
+  ctx.fillStyle = "#0369a1";
+  ctx.fillRect(0, LANE_HEIGHT, canvas.width, TRAY_Y - LANE_HEIGHT);
+
+  // Steel Outer Pipe Loop
+  ctx.strokeStyle = "#94a3b8";
+  ctx.lineWidth = 14;
+  ctx.strokeRect(PIPE_L, PIPE_T, PIPE_R - PIPE_L, PIPE_B - PIPE_T);
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(PIPE_L, PIPE_T, PIPE_R - PIPE_L, PIPE_B - PIPE_T);
+
+  // Play Grid
+  ctx.fillStyle = "#38bdf8";
+  ctx.fillRect(GRID_X, GRID_Y, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE);
+
+  ctx.strokeStyle = "#0284c7";
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i <= GRID_SIZE; i++) {
+    ctx.beginPath(); ctx.moveTo(GRID_X + i * CELL_SIZE, GRID_Y); ctx.lineTo(GRID_X + i * CELL_SIZE, GRID_Y + GRID_SIZE * CELL_SIZE); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(GRID_X, GRID_Y + i * CELL_SIZE); ctx.lineTo(GRID_X + GRID_SIZE * CELL_SIZE, GRID_Y + i * CELL_SIZE); ctx.stroke();
+  }
+
+  // Gate
+  ctx.fillStyle = "#22c55e";
+  ctx.fillRect(PIPE_L - 4, GATE_Y - 12, 16, 24);
+
+  // Draw Grid Elements & Extended Trigger Pads
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const tile = grid[r][c];
+      if (!tile) continue;
+
+      const x = GRID_X + c * CELL_SIZE;
+      const y = GRID_Y + r * CELL_SIZE;
+      const cx = x + CELL_SIZE / 2;
+      const cy = y + CELL_SIZE / 2;
+
+      // Extended trigger petal
+      if (tile.dir && tile.type !== "booster") {
+        const tx = cx + tile.dir.dc * CELL_SIZE;
+        const ty = cy + tile.dir.dr * CELL_SIZE;
+
+        ctx.strokeStyle = "#facc15";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+
+        ctx.fillStyle = tile.pulse > 0 ? "#ffffff" : "#facc15";
+        ctx.beginPath();
+        ctx.arc(tx, ty, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#854d0e";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Tile Body
+      if (tile.type === "booster") {
+        ctx.fillStyle = tile.pulse > 0 ? "#fef08a" : "#f59e0b";
+        ctx.fillRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+        ctx.strokeStyle = "#b45309";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 22px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(tile.icon, cx, cy + 8);
+      } else if (tile.type.startsWith("prism")) {
+        ctx.fillStyle = "#0284c7";
+        ctx.beginPath();
+        if (tile.type === "prism-tl") {
+          ctx.moveTo(x + 3, y + 3); ctx.lineTo(x + CELL_SIZE - 3, y + 3); ctx.lineTo(x + 3, y + CELL_SIZE - 3);
+        } else if (tile.type === "prism-tr") {
+          ctx.moveTo(x + 3, y + 3); ctx.lineTo(x + CELL_SIZE - 3, y + 3); ctx.lineTo(x + CELL_SIZE - 3, y + CELL_SIZE - 3);
+        } else if (tile.type === "prism-bl") {
+          ctx.moveTo(x + 3, y + 3); ctx.lineTo(x + 3, y + CELL_SIZE - 3); ctx.lineTo(x + CELL_SIZE - 3, y + CELL_SIZE - 3);
+        } else if (tile.type === "prism-br") {
+          ctx.moveTo(x + CELL_SIZE - 3, y + 3); ctx.lineTo(x + CELL_SIZE - 3, y + CELL_SIZE - 3); ctx.lineTo(x + 3, y + CELL_SIZE - 3);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = "#ffffff";
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = tile.pulse > 0 ? "#fef08a" : "#ffffff";
+        ctx.fillRect(x + 8, y + 8, CELL_SIZE - 16, CELL_SIZE - 16);
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 8, y + 8, CELL_SIZE - 16, CELL_SIZE - 16);
+        ctx.font = "20px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(tile.icon, cx, cy + 7);
+      }
+    }
+  }
+
+  // Draw Ball
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0284c7";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 3. Shop Tray
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0, TRAY_Y, canvas.width, TRAY_HEIGHT);
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0, TRAY_Y, canvas.width, TRAY_HEIGHT);
+
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "bold 11px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("SHOP TRAY (DRAG ITEMS TO GRID / MOVE TO REPOSITION)", canvas.width / 2, TRAY_Y + 18);
+
+  for (let i = 0; i < TRAY_SLOTS; i++) {
+    const sx = TRAY_START_X + i * (SLOT_SIZE + SLOT_GAP);
+    const sy = TRAY_Y + 30;
+
+    ctx.fillStyle = "#1e293b";
+    ctx.fillRect(sx, sy, SLOT_SIZE, SLOT_SIZE);
+    ctx.strokeStyle = "#475569";
+    ctx.strokeRect(sx, sy, SLOT_SIZE, SLOT_SIZE);
+
+    const item = shopTray[i];
+    if (item && !(draggingItem && dragSource === "shop" && dragOrigin.index === i)) {
+      ctx.fillStyle = item.type === "booster" ? "#f59e0b" : "#ffffff";
+      ctx.fillRect(sx + 8, sy + 8, SLOT_SIZE - 16, SLOT_SIZE - 16);
+      ctx.font = "20px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = item.type === "booster" ? "#ffffff" : "#000000";
+      ctx.fillText(item.icon, sx + SLOT_SIZE / 2, sy + 32);
+
+      if (item.dir && item.type !== "booster") {
+        ctx.fillStyle = "#facc15";
+        const dotX = sx + SLOT_SIZE / 2 + item.dir.dc * 18;
+        const dotY = sy + SLOT_SIZE / 2 + item.dir.dr * 18;
+        ctx.beginPath();
+        ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = gold >= item.cost ? "#22c55e" : "#ef4444";
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText(`$${item.cost}`, sx + SLOT_SIZE / 2, sy + SLOT_SIZE + 14);
+    }
+  }
+
+  // Render Dragged Item Ghost
+  if (draggingItem) {
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+
+    if (draggingItem.dir && draggingItem.type !== "booster") {
+      const gtx = dragX + draggingItem.dir.dc * CELL_SIZE;
+      const gty = dragY + draggingItem.dir.dr * CELL_SIZE;
+      ctx.strokeStyle = "#facc15";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(dragX, dragY);
+      ctx.lineTo(gtx, gty);
+      ctx.stroke();
+      ctx.fillStyle = "#facc15";
+      ctx.beginPath();
+      ctx.arc(gtx, gty, 10, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = draggingItem.type === "booster" ? "#f59e0b" : "#ffffff";
+    ctx.fillRect(dragX - 20, dragY - 20, 40, 40);
+    ctx.font = "22px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = draggingItem.type === "booster" ? "#ffffff" : "#000000";
+    ctx.fillText(draggingItem.icon, dragX, dragY + 8);
+    ctx.restore();
+  }
+}
+
+function gameLoop() {
+  updatePhysics();
+  updateCombat();
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>

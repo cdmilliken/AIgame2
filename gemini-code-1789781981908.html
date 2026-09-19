@@ -1,0 +1,1682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Bounce Defense - Loop Circulation Edition</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700;800&family=Inter:wght@600;700;900&display=swap');
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at 50% 10%, #1e293b 0%, #090d16 100%);
+      font-family: 'Fredoka', 'Inter', sans-serif;
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Tactile Mobile Buttons */
+    .btn-fight {
+      background: linear-gradient(180deg, #ff4365 0%, #e11d48 55%, #9f1239 100%);
+      box-shadow: 0 6px 0 #4c0519, 0 10px 22px rgba(225, 29, 72, 0.45);
+      transition: all 0.08s ease;
+      text-shadow: 0 2px 3px rgba(0,0,0,0.4);
+    }
+    .btn-fight:hover:not(:disabled) {
+      filter: brightness(1.1);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 0 #4c0519, 0 14px 26px rgba(225, 29, 72, 0.55);
+    }
+    .btn-fight:active:not(:disabled) {
+      transform: translateY(4px);
+      box-shadow: 0 2px 0 #4c0519, 0 4px 10px rgba(225, 29, 72, 0.3);
+    }
+    .btn-fight:disabled {
+      background: #334155;
+      box-shadow: 0 4px 0 #1e293b;
+      cursor: not-allowed;
+      opacity: 0.6;
+      filter: grayscale(0.85);
+    }
+
+    .btn-sub {
+      background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+      box-shadow: 0 4px 0 #075985, 0 6px 12px rgba(2, 132, 199, 0.35);
+      transition: all 0.08s ease;
+    }
+    .btn-sub:hover:not(:disabled) {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    .btn-sub:active:not(:disabled) {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #075985;
+    }
+
+    .game-modal {
+      transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .game-modal.hidden-modal {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.92);
+    }
+
+    @keyframes mergePulse {
+      0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+      50% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1.0); opacity: 1; }
+    }
+    .animate-merge-pop {
+      animation: mergePulse 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    }
+  </style>
+</head>
+<body class="p-2 sm:p-4 text-white">
+
+  <!-- Main Game Frame -->
+  <div class="relative w-full max-w-[460px] flex flex-col items-center">
+    
+    <!-- Top HUD Header -->
+    <header class="w-full flex items-center justify-between bg-slate-900/90 border-2 border-slate-700/80 px-3.5 py-2 rounded-2xl shadow-xl backdrop-blur-md mb-2">
+      <!-- Base Core Wall HP -->
+      <div id="hp-badge" class="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 px-2.5 py-1 rounded-xl transition-all duration-150">
+        <i class="fa-solid fa-shield-heart text-rose-500 animate-pulse text-base sm:text-lg"></i>
+        <div class="flex flex-col">
+          <span class="text-[9px] uppercase tracking-wider font-extrabold text-rose-300 leading-none">Core Wall</span>
+          <span id="ui-hp" class="text-xs sm:text-sm font-black text-white leading-none">50 / 50</span>
+        </div>
+      </div>
+
+      <!-- Stage / Round Display -->
+      <div class="flex flex-col items-center">
+        <span class="text-[9px] tracking-widest font-black uppercase text-amber-300">SIEGE WAVE</span>
+        <span id="ui-round" class="text-sm sm:text-base font-black text-amber-400">ROUND 1</span>
+      </div>
+
+      <!-- Gems Currency -->
+      <div class="flex items-center gap-2 bg-amber-950/60 border border-amber-800/80 px-2.5 py-1 rounded-xl">
+        <i class="fa-solid fa-gem text-amber-400 text-base sm:text-lg"></i>
+        <div class="flex flex-col items-end">
+          <span class="text-[9px] uppercase tracking-wider font-extrabold text-amber-200 leading-none">Gems</span>
+          <span id="ui-gold" class="text-xs sm:text-sm font-black text-amber-300 leading-none">120</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Phase Banner -->
+    <div id="phase-banner" class="w-full text-center py-1 px-3 mb-2 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md bg-amber-500/20 text-amber-300 border border-amber-500/40">
+      🛠️ PREP: DRAG ITEMS & MERGE (TOWERS & SAME-DIR BOUNCERS)!
+    </div>
+
+    <!-- Canvas Wrapper -->
+    <div class="relative w-full rounded-2xl overflow-hidden border-4 border-slate-700/80 bg-slate-900 shadow-2xl">
+      <canvas id="game-canvas" width="440" height="660" class="block w-full h-auto cursor-grab active:cursor-grabbing"></canvas>
+
+      <!-- Combat Invasion HUD Overlay -->
+      <div id="invasion-hud" class="absolute top-2 left-3 right-3 flex items-center justify-between pointer-events-none opacity-0 transition-opacity duration-300">
+        <div class="bg-black/80 backdrop-blur-md border border-slate-600 px-3 py-1 rounded-full text-xs font-black text-slate-100 flex items-center gap-2">
+          <i class="fa-solid fa-skull-crossbones text-rose-400"></i>
+          <span>Hostiles: <strong id="ui-enemies-left" class="text-rose-400 text-sm">15</strong></span>
+        </div>
+        <div class="bg-black/80 backdrop-blur-md border border-slate-600 px-3 py-1 rounded-full text-xs font-black text-emerald-400 flex items-center gap-1.5">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+          <span id="ui-ball-speed">Speed: 100%</span>
+        </div>
+      </div>
+
+      <!-- Combine Success Toast -->
+      <div id="combine-toast" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-sky-950/95 border-2 border-sky-400 rounded-2xl p-4 shadow-2xl flex flex-col items-center gap-2 pointer-events-none opacity-0 transition-all duration-300 z-30 min-w-[240px]">
+        <div class="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-sky-300">
+          <i class="fa-solid fa-sparkles text-amber-400"></i>
+          <span id="toast-title">COMBINE SUCCESS!</span>
+        </div>
+        <div class="flex items-center gap-3 my-1">
+          <div id="toast-item-from" class="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold shadow-md"></div>
+          <i class="fa-solid fa-plus text-sky-400 text-sm"></i>
+          <div id="toast-item-to" class="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold shadow-md"></div>
+        </div>
+        <div id="toast-result-name" class="text-xs font-black text-white text-center leading-tight">Upgraded Item</div>
+        <div id="toast-result-desc" class="text-[11px] font-bold text-emerald-400 text-center">Bonus Info</div>
+      </div>
+    </div>
+
+    <!-- Bottom Action Controls -->
+    <div class="w-full mt-2 flex flex-col gap-2">
+      <div class="flex items-center gap-2">
+        <button id="btn-fight" class="btn-fight flex-1 py-3 px-5 rounded-2xl text-white font-black text-base sm:text-lg tracking-wider flex items-center justify-center gap-3">
+          <i class="fa-solid fa-swords text-amber-300 text-lg"></i>
+          <span>READY: FIGHT!</span>
+          <i class="fa-solid fa-swords text-amber-300 text-lg"></i>
+        </button>
+
+        <button id="btn-reroll" title="Reroll shop items ($5)" class="btn-sub px-3.5 py-3 rounded-2xl font-black text-xs sm:text-sm flex flex-col items-center justify-center text-white">
+          <i class="fa-solid fa-arrows-rotate text-sm mb-0.5"></i>
+          <span>Re-Roll ($5)</span>
+        </button>
+
+        <button id="btn-recycle-mode" title="Sell placed item" class="btn-sub px-3.5 py-3 rounded-2xl font-black text-xs sm:text-sm flex flex-col items-center justify-center text-white bg-slate-700">
+          <i class="fa-solid fa-trash-can text-sm mb-0.5"></i>
+          <span>Sell</span>
+        </button>
+      </div>
+
+      <!-- Feature & Upgrades Legend -->
+      <div class="bg-slate-900/80 border border-slate-700/70 px-3 py-2 rounded-xl text-[11px] text-slate-300 flex flex-col gap-1">
+        <div class="flex items-center justify-between font-bold">
+          <span class="text-amber-400"><i class="fa-solid fa-bolt mr-1"></i>Bouncer Upgrade:</span>
+          <span class="text-emerald-300">Merge same direction up to ★5</span>
+        </div>
+        <div class="text-[10px] text-slate-400">
+          Lvl 2: <strong class="text-emerald-400">+10% SPD</strong> • Lvl 3: <strong class="text-purple-400">+20% SPD</strong> • Lvl 4: <strong class="text-amber-400">+30% SPD</strong> • Lvl 5: <strong class="text-rose-400">+40% SPD</strong> (Resets each re-entry)
+        </div>
+      </div>
+    </div>
+
+    <!-- Victory / Game Over Modal -->
+    <div id="status-modal" class="game-modal hidden-modal fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+      <div class="bg-slate-900 border-4 border-amber-500/80 rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl flex flex-col items-center gap-4">
+        <div id="modal-icon" class="w-16 h-16 rounded-2xl bg-amber-500/20 border-2 border-amber-400 flex items-center justify-center text-3xl text-amber-400">
+          🏆
+        </div>
+        <div>
+          <h2 id="modal-title" class="text-2xl font-black text-white">WAVE DEFENDED!</h2>
+          <p id="modal-desc" class="text-sm text-slate-300 mt-1">Enemy siege broken. Castle walls secured.</p>
+        </div>
+        <div id="modal-reward-box" class="bg-slate-800/80 border border-slate-700 w-full py-2.5 rounded-xl font-bold text-amber-300 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-gem text-lg"></i>
+          <span id="modal-reward-text">+50 Gems</span>
+        </div>
+        <button id="modal-btn" class="btn-fight w-full py-3 rounded-2xl font-black text-lg tracking-wide text-white">
+          CONTINUE TO NEXT ROUND
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+  const canvas = document.getElementById("game-canvas");
+  const ctx = canvas.getContext("2d");
+
+  // Layout Dimensions
+  const LANE_HEIGHT = 160;       // Top battlefield
+  const DIVIDER_HEIGHT = 20;     // Castle battlement wall
+  const WALL_Y = LANE_HEIGHT + DIVIDER_HEIGHT; // Y coord where enemies siege the wall
+  const GRID_SIZE = 6;           // 6 x 6 bounce arena
+  const CELL_SIZE = 52;          // 312px chamber grid
+  const GRID_X = Math.round((canvas.width - (GRID_SIZE * CELL_SIZE)) / 2); // 64px
+  const GRID_Y = WALL_Y + 35;    // 215px
+  const PIPE_PAD = 18;           // Perimeter pipe loop offset
+
+  // Outer Steel Pipe Rail perimeter
+  const PIPE_L = GRID_X - PIPE_PAD;
+  const PIPE_R = GRID_X + GRID_SIZE * CELL_SIZE + PIPE_PAD;
+  const PIPE_T = GRID_Y - PIPE_PAD;
+  const PIPE_B = GRID_Y + GRID_SIZE * CELL_SIZE + PIPE_PAD;
+  const PIPE_W = PIPE_R - PIPE_L;
+  const PIPE_H = PIPE_B - PIPE_T;
+  const PIPE_PERIMETER = 2 * (PIPE_W + PIPE_H);
+
+  // Green Launch / Re-Entry Nozzle Gate (Left edge at row 2)
+  const GATE_ROW = 2;
+  const GATE_X = GRID_X;
+  const GATE_Y = GRID_Y + GATE_ROW * CELL_SIZE + CELL_SIZE / 2;
+  const GATE_HALF_HEIGHT = 22;
+
+  // Exact pipe perimeter distance where the green nozzle connects along the left edge
+  const GATE_PIPE_DIST = 2 * PIPE_W + PIPE_H + (PIPE_B - GATE_Y);
+
+  // Bottom Armory Drawer layout
+  const TRAY_Y = 530;
+  const TRAY_HEIGHT = 122;
+  const TRAY_SLOTS = 4;
+  const SLOT_SIZE = 58;
+  const SLOT_GAP = 14;
+  const TRAY_START_X = (canvas.width - (TRAY_SLOTS * SLOT_SIZE + (TRAY_SLOTS - 1) * SLOT_GAP)) / 2;
+
+  // Base ball speed
+  const BASE_SPEED = 5.2;
+
+  // Cardinal vectors for orthogonal ball movement
+  const DIRS = [
+    { name: "UP",    dr: -1, dc: 0, vx: 0,          vy: -BASE_SPEED },
+    { name: "RIGHT", dr: 0,  dc: 1, vx: BASE_SPEED,  vy: 0          },
+    { name: "DOWN",  dr: 1,  dc: 0, vx: 0,          vy: BASE_SPEED  },
+    { name: "LEFT",  dr: 0,  dc: -1, vx: -BASE_SPEED, vy: 0          }
+  ];
+
+  const LEVEL_THEMES = {
+    1: { bg: "#0284c7", border: "#38bdf8", badge: "#38bdf8", text: "#ffffff", label: "LVL 1", speedBonus: 0.0, dmgMult: 1.0 },
+    2: { bg: "#059669", border: "#34d399", badge: "#34d399", text: "#ffffff", label: "LVL 2", speedBonus: 0.10, dmgMult: 1.2 },
+    3: { bg: "#7c3aed", border: "#c084fc", badge: "#c084fc", text: "#ffffff", label: "LVL 3", speedBonus: 0.20, dmgMult: 1.4 },
+    4: { bg: "#d97706", border: "#fbbf24", badge: "#fbbf24", text: "#ffffff", label: "LVL 4", speedBonus: 0.30, dmgMult: 1.6 },
+    5: { bg: "#be123c", border: "#fda4af", badge: "#fda4af", text: "#ffffff", label: "LVL 5 MAX", speedBonus: 0.40, dmgMult: 1.8 }
+  };
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  function playTone(freq, type, duration, vol = 0.15) {
+    try {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {}
+  }
+
+  function playBounceSound() { playTone(440, "sine", 0.06, 0.2); }
+  function playDeflectSound() { playTone(580, "triangle", 0.08, 0.25); }
+  function playSpeedBoostSound() {
+    playTone(520, "sine", 0.06, 0.2);
+    setTimeout(() => playTone(880, "triangle", 0.12, 0.3), 50);
+  }
+  function playMergeSound() {
+    playTone(440, "sine", 0.08, 0.25);
+    setTimeout(() => playTone(660, "triangle", 0.12, 0.3), 70);
+    setTimeout(() => playTone(880, "sine", 0.18, 0.35), 140);
+  }
+  function playFireSound(type) {
+    if (type === "rocket") playTone(200, "triangle", 0.12, 0.25);
+    else if (type === "tesla") playTone(720, "sawtooth", 0.08, 0.2);
+    else playTone(120, "square", 0.16, 0.3);
+  }
+  function playEnemyHitSound() { playTone(240, "sine", 0.05, 0.12); }
+  function playWallDamageSound() { playTone(100, "sawtooth", 0.15, 0.35); }
+  function playVictorySound() {
+    [440, 554, 659, 880].forEach((f, idx) => {
+      setTimeout(() => playTone(f, "triangle", 0.22, 0.2), idx * 80);
+    });
+  }
+
+  let gameState = "PREP";
+  let hp = 50;
+  const MAX_HP = 50;
+  let gold = 120;
+  let round = 1;
+  let sellMode = false;
+  let wallDamageFlash = 0;
+
+  function getWaveTotalForRound(r) {
+    let count = 15;
+    for (let i = 1; i < r; i++) {
+      count = Math.round(count * 1.5);
+    }
+    return count;
+  }
+
+  let totalRoundEnemies = 15;
+  let enemiesSpawned = 0;
+  let spawnClock = 0;
+
+  const ball = {
+    x: GATE_X,
+    y: GATE_Y,
+    vx: BASE_SPEED,
+    vy: 0,
+    speedMultiplier: 1.0,
+    radius: 7.5,
+    inPipe: false,
+    pipeDist: 0,
+    orbitDistanceTraveled: 0,
+    minOrbitDistanceRequired: 0,
+    speedBoostGlowTimer: 0
+  };
+
+  const grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
+  let shopTray = [];
+
+  let enemies = [];
+  let projectiles = [];
+  let fxRays = [];
+  let explosions = [];
+  let floatTexts = [];
+  let speedParticles = [];
+
+  function getRandomItem() {
+    const roll = Math.random();
+    const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
+
+    if (roll < 0.28) {
+      return { 
+        type: "rocket", 
+        cost: 30, 
+        icon: "🚀", 
+        name: "Rocket Pod", 
+        dirs: [dir], 
+        level: 1, 
+        baseDamage: 36,
+        pulse: 0 
+      };
+    } else if (roll < 0.54) {
+      return { 
+        type: "tesla", 
+        cost: 35, 
+        icon: "⚡", 
+        name: "Tesla Coil", 
+        dirs: [dir], 
+        level: 1, 
+        baseDamage: 24,
+        pulse: 0 
+      };
+    } else if (roll < 0.74) {
+      return { 
+        type: "bomb", 
+        cost: 40, 
+        icon: "💣", 
+        name: "Mortar Pad", 
+        dirs: [dir], 
+        level: 1, 
+        baseDamage: 32,
+        pulse: 0 
+      };
+    } else {
+      const padType = Math.random() < 0.5 ? "diag-fwd" : "diag-bwd";
+      return { 
+        type: padType, 
+        cost: 15, 
+        icon: padType === "diag-fwd" ? "╱" : "╲", 
+        name: padType === "diag-fwd" ? "Bouncer [/]" : "Bouncer [\\]", 
+        dirs: [], 
+        level: 1, 
+        pulse: 0,
+        bounceCooldown: 0
+      };
+    }
+  }
+
+  function restockShop(forceAll = false) {
+    for (let i = 0; i < TRAY_SLOTS; i++) {
+      if (forceAll || !shopTray[i]) {
+        shopTray[i] = getRandomItem();
+      }
+    }
+  }
+  restockShop(true);
+
+  let draggingItem = null;
+  let dragSource = null;
+  let dragOrigin = null;
+  let pointerX = 0;
+  let pointerY = 0;
+
+  function updateHUD() {
+    document.getElementById("ui-hp").innerText = `${Math.max(0, hp)} / ${MAX_HP}`;
+    document.getElementById("ui-round").innerText = `ROUND ${round}`;
+    document.getElementById("ui-gold").innerText = gold;
+    
+    const remainingEnemies = (totalRoundEnemies - enemiesSpawned) + enemies.length;
+    document.getElementById("ui-enemies-left").innerText = Math.max(0, remainingEnemies);
+
+    const currentPct = Math.round(ball.speedMultiplier * 100);
+    document.getElementById("ui-ball-speed").innerText = `Speed: ${currentPct}%`;
+
+    const banner = document.getElementById("phase-banner");
+    const fightBtn = document.getElementById("btn-fight");
+    const invasionHud = document.getElementById("invasion-hud");
+
+    if (gameState === "PREP") {
+      banner.innerText = "🛠️ PREP: DRAG ITEMS & MERGE (TOWERS & SAME-DIR BOUNCERS)!";
+      banner.className = "w-full text-center py-1 px-3 mb-2 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md bg-amber-500/20 text-amber-300 border border-amber-500/40";
+      fightBtn.disabled = false;
+      fightBtn.innerHTML = '<i class="fa-solid fa-swords text-amber-300 text-lg"></i><span>READY: FIGHT!</span><i class="fa-solid fa-swords text-amber-300 text-lg"></i>';
+      invasionHud.style.opacity = "0";
+    } else if (gameState === "DEFENSE") {
+      banner.innerText = `⚔️ DEFENSE PHASE - WAVE ${round} SIEGE!`;
+      banner.className = "w-full text-center py-1 px-3 mb-2 rounded-xl text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-md bg-rose-600/30 text-rose-300 border border-rose-500/50 animate-pulse";
+      fightBtn.disabled = true;
+      fightBtn.innerHTML = '<i class="fa-solid fa-shield-halved text-rose-300 text-base"></i><span>DEFENDING WALL...</span>';
+      invasionHud.style.opacity = "1";
+    }
+  }
+
+  function addFloatingText(text, x, y, color = "#ffffff") {
+    floatTexts.push({ text, x, y, color, life: 30, vy: -1.2 });
+  }
+
+  function showCombineToast(itemA, itemB, resultItem) {
+    const toast = document.getElementById("combine-toast");
+    const itemFromEl = document.getElementById("toast-item-from");
+    const itemToEl = document.getElementById("toast-item-to");
+    const resultNameEl = document.getElementById("toast-result-name");
+    const resultDescEl = document.getElementById("toast-result-desc");
+
+    const themePrev = LEVEL_THEMES[itemA.level];
+    const themeNew = LEVEL_THEMES[resultItem.level];
+
+    itemFromEl.style.backgroundColor = themePrev.bg;
+    itemFromEl.style.border = `2px solid ${themePrev.border}`;
+    itemFromEl.innerText = itemA.icon;
+
+    itemToEl.style.backgroundColor = themeNew.bg;
+    itemToEl.style.border = `2px solid ${themeNew.border}`;
+    itemToEl.innerText = resultItem.icon;
+
+    if (resultItem.type.startsWith("diag")) {
+      resultNameEl.innerText = `Upgraded Bouncer (${themeNew.label})`;
+      const spdBonus = Math.round(themeNew.speedBonus * 100);
+      resultDescEl.innerText = `Speed +${spdBonus}%`;
+      resultDescEl.className = "text-[11px] font-bold text-emerald-400 text-center";
+    } else {
+      resultNameEl.innerText = `Upgraded ${resultItem.name} (${themeNew.label})`;
+      const dmgBonus = Math.round((themeNew.dmgMult - 1.0) * 100);
+      resultDescEl.innerText = `Damage +${dmgBonus}% & Triggers Inherited`;
+      resultDescEl.className = "text-[11px] font-bold text-amber-300 text-center";
+    }
+
+    toast.classList.remove("opacity-0", "pointer-events-none");
+    toast.classList.add("animate-merge-pop");
+
+    setTimeout(() => {
+      toast.classList.add("opacity-0", "pointer-events-none");
+      toast.classList.remove("animate-merge-pop");
+    }, 1800);
+  }
+
+  function getCanvasCoords(evt) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    const clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    };
+  }
+
+  function handlePointerStart(e) {
+    if (gameState !== "PREP") return;
+    const pos = getCanvasCoords(e);
+    pointerX = pos.x;
+    pointerY = pos.y;
+
+    const gCol = Math.floor((pos.x - GRID_X) / CELL_SIZE);
+    const gRow = Math.floor((pos.y - GRID_Y) / CELL_SIZE);
+    if (gCol >= 0 && gCol < GRID_SIZE && gRow >= 0 && gRow < GRID_SIZE) {
+      if (grid[gRow][gCol]) {
+        if (sellMode) {
+          const item = grid[gRow][gCol];
+          gold += Math.round((item.cost || 20) * (item.level || 1) * 0.6);
+          grid[gRow][gCol] = null;
+          playTone(400, "triangle", 0.1);
+          updateHUD();
+          return;
+        }
+        draggingItem = grid[gRow][gCol];
+        dragSource = "grid";
+        dragOrigin = { r: gRow, c: gCol };
+        grid[gRow][gCol] = null;
+        playTone(320, "sine", 0.05);
+        return;
+      }
+    }
+
+    for (let i = 0; i < TRAY_SLOTS; i++) {
+      const sx = TRAY_START_X + i * (SLOT_SIZE + SLOT_GAP);
+      const sy = TRAY_Y + 36;
+      if (pos.x >= sx && pos.x <= sx + SLOT_SIZE && pos.y >= sy && pos.y <= sy + SLOT_SIZE) {
+        const item = shopTray[i];
+        if (item && gold >= item.cost) {
+          draggingItem = { ...item };
+          dragSource = "shop";
+          dragOrigin = { index: i };
+          playTone(360, "sine", 0.05);
+        } else if (item) {
+          addFloatingText("NEED GEMS!", sx + SLOT_SIZE/2, sy - 10, "#f43f5e");
+          playTone(150, "sawtooth", 0.1);
+        }
+        break;
+      }
+    }
+  }
+
+  function handlePointerMove(e) {
+    if (!draggingItem) return;
+    const pos = getCanvasCoords(e);
+    pointerX = pos.x;
+    pointerY = pos.y;
+    e.preventDefault();
+  }
+
+  function handlePointerEnd(e) {
+    if (!draggingItem) return;
+
+    const col = Math.floor((pointerX - GRID_X) / CELL_SIZE);
+    const row = Math.floor((pointerY - GRID_Y) / CELL_SIZE);
+    const isWithinGrid = col >= 0 && col < GRID_SIZE && row >= 0 && row < GRID_SIZE;
+
+    if (isWithinGrid) {
+      const existing = grid[row][col];
+
+      const canMergeTowers = (
+        existing && 
+        !existing.type.startsWith("diag") && 
+        !draggingItem.type.startsWith("diag") &&
+        existing.type === draggingItem.type && 
+        existing.level === draggingItem.level && 
+        existing.level < 5
+      );
+
+      const canMergeBouncers = (
+        existing &&
+        existing.type.startsWith("diag") &&
+        draggingItem.type.startsWith("diag") &&
+        existing.type === draggingItem.type &&
+        existing.level === draggingItem.level &&
+        existing.level < 5
+      );
+
+      if (canMergeTowers) {
+        const combinedDirs = [...existing.dirs];
+        for (const d of draggingItem.dirs) {
+          if (!combinedDirs.some(cd => cd.name === d.name)) {
+            combinedDirs.push(d);
+          }
+        }
+
+        const newLevel = existing.level + 1;
+        const dmgMult = LEVEL_THEMES[newLevel].dmgMult;
+        const newDamage = Math.round((existing.baseDamage || 30) * dmgMult);
+
+        const upgradedTower = {
+          ...existing,
+          r: row,
+          c: col,
+          level: newLevel,
+          dirs: combinedDirs,
+          baseDamage: newDamage,
+          pulse: 18
+        };
+
+        grid[row][col] = upgradedTower;
+
+        if (dragSource === "shop") {
+          gold -= draggingItem.cost;
+          shopTray[dragOrigin.index] = getRandomItem();
+        }
+
+        playMergeSound();
+        showCombineToast(existing, draggingItem, upgradedTower);
+        addFloatingText(`MERGE! ★${newLevel}`, GRID_X + col * CELL_SIZE + CELL_SIZE/2, GRID_Y + row * CELL_SIZE, LEVEL_THEMES[newLevel].badge);
+      } 
+      else if (canMergeBouncers) {
+        const newLevel = existing.level + 1;
+        const upgradedBouncer = {
+          ...existing,
+          r: row,
+          c: col,
+          level: newLevel,
+          pulse: 20,
+          bounceCooldown: 0
+        };
+
+        grid[row][col] = upgradedBouncer;
+
+        if (dragSource === "shop") {
+          gold -= draggingItem.cost;
+          shopTray[dragOrigin.index] = getRandomItem();
+        }
+
+        playMergeSound();
+        showCombineToast(existing, draggingItem, upgradedBouncer);
+        const spdText = `+${Math.round(LEVEL_THEMES[newLevel].speedBonus * 100)}% SPD`;
+        addFloatingText(spdText, GRID_X + col * CELL_SIZE + CELL_SIZE/2, GRID_Y + row * CELL_SIZE, "#10b981");
+      }
+      else if (!existing) {
+        grid[row][col] = { ...draggingItem, r: row, c: col, bounceCooldown: 0 };
+        if (dragSource === "shop") {
+          gold -= draggingItem.cost;
+          shopTray[dragOrigin.index] = getRandomItem();
+        }
+        playTone(520, "triangle", 0.1);
+      } 
+      else {
+        if (dragSource === "grid") {
+          grid[dragOrigin.r][dragOrigin.c] = draggingItem;
+        }
+        playTone(180, "sawtooth", 0.08);
+      }
+    } else {
+      if (dragSource === "grid") {
+        grid[dragOrigin.r][dragOrigin.c] = draggingItem;
+      }
+    }
+
+    draggingItem = null;
+    dragSource = null;
+    dragOrigin = null;
+    updateHUD();
+  }
+
+  canvas.addEventListener("mousedown", handlePointerStart);
+  window.addEventListener("mousemove", handlePointerMove);
+  window.addEventListener("mouseup", handlePointerEnd);
+
+  canvas.addEventListener("touchstart", handlePointerStart, { passive: false });
+  window.addEventListener("touchmove", handlePointerMove, { passive: false });
+  window.addEventListener("touchend", handlePointerEnd);
+
+  document.getElementById("btn-reroll").addEventListener("click", () => {
+    if (gameState !== "PREP") return;
+    if (gold >= 5) {
+      gold -= 5;
+      restockShop(true);
+      playTone(480, "sine", 0.1);
+      updateHUD();
+    } else {
+      playTone(140, "sawtooth", 0.1);
+    }
+  });
+
+  const sellBtn = document.getElementById("btn-recycle-mode");
+  sellBtn.addEventListener("click", () => {
+    sellMode = !sellMode;
+    sellBtn.classList.toggle("bg-rose-600", sellMode);
+    sellBtn.classList.toggle("bg-slate-700", !sellMode);
+  });
+
+  function startDefensePhase() {
+    if (gameState !== "PREP") return;
+    sellMode = false;
+    sellBtn.classList.remove("bg-rose-600");
+    sellBtn.classList.add("bg-slate-700");
+
+    gameState = "DEFENSE";
+    totalRoundEnemies = getWaveTotalForRound(round);
+    enemiesSpawned = 0;
+    enemies = [];
+    projectiles = [];
+    fxRays = [];
+    explosions = [];
+    speedParticles = [];
+
+    ball.x = GATE_X;
+    ball.y = GATE_Y;
+    ball.speedMultiplier = 1.0;
+    ball.vx = BASE_SPEED;
+    ball.vy = 0;
+    ball.inPipe = false;
+    ball.pipeDist = 0;
+    ball.orbitDistanceTraveled = 0;
+    ball.minOrbitDistanceRequired = 0;
+    ball.speedBoostGlowTimer = 0;
+
+    playTone(600, "triangle", 0.2);
+    updateHUD();
+  }
+
+  document.getElementById("btn-fight").addEventListener("click", startDefensePhase);
+
+  function finishRoundVictory() {
+    gameState = "PREP";
+    const bonus = 40 + round * 12;
+    gold += bonus;
+    round++;
+    playVictorySound();
+
+    const modal = document.getElementById("status-modal");
+    document.getElementById("modal-icon").innerText = "👑";
+    document.getElementById("modal-title").innerText = `WAVE ${round - 1} SECURED!`;
+    document.getElementById("modal-desc").innerText = `All sieging enemies eradicated! Castle defended.`;
+    document.getElementById("modal-reward-text").innerText = `+${bonus} Gems Wave Bounty`;
+    document.getElementById("modal-btn").innerText = `PLAN WAVE ${round}`;
+    modal.classList.remove("hidden-modal");
+
+    updateHUD();
+  }
+
+  function handleGameOver() {
+    gameState = "GAMEOVER";
+    playTone(110, "sawtooth", 0.6);
+    const modal = document.getElementById("status-modal");
+    document.getElementById("modal-icon").innerText = "💀";
+    document.getElementById("modal-title").innerText = "WALL BREACHED!";
+    document.getElementById("modal-desc").innerText = `The castle walls collapsed under the siege on Round ${round}.`;
+    document.getElementById("modal-reward-text").innerText = `Survived until Round ${round}`;
+    document.getElementById("modal-btn").innerText = "RESTART DEFENSE";
+    modal.classList.remove("hidden-modal");
+  }
+
+  document.getElementById("modal-btn").addEventListener("click", () => {
+    const modal = document.getElementById("status-modal");
+    modal.classList.add("hidden-modal");
+
+    if (gameState === "GAMEOVER") {
+      hp = MAX_HP;
+      gold = 120;
+      round = 1;
+      gameState = "PREP";
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) grid[r][c] = null;
+      }
+      restockShop(true);
+      updateHUD();
+    }
+  });
+
+  function getPipeDistForCoords(x, y) {
+    if (y <= GRID_Y) {
+      return Math.max(0, Math.min(PIPE_W, x - PIPE_L));
+    } else if (x >= GRID_X + GRID_SIZE * CELL_SIZE) {
+      return PIPE_W + Math.max(0, Math.min(PIPE_H, y - PIPE_T));
+    } else if (y >= GRID_Y + GRID_SIZE * CELL_SIZE) {
+      return PIPE_W + PIPE_H + Math.max(0, Math.min(PIPE_W, PIPE_R - x));
+    } else {
+      return 2 * PIPE_W + PIPE_H + Math.max(0, Math.min(PIPE_H, PIPE_B - y));
+    }
+  }
+
+  function enterPipeLoop(currentX, currentY, isDirectGateEntry = false) {
+    ball.inPipe = true;
+    ball.pipeDist = isDirectGateEntry ? GATE_PIPE_DIST : getPipeDistForCoords(currentX, currentY);
+    ball.orbitDistanceTraveled = 0;
+    // Complete 360-degree circuit if entering through green nozzle, else direct to nozzle
+    ball.minOrbitDistanceRequired = isDirectGateEntry ? (PIPE_PERIMETER - 5) : 0;
+    playBounceSound();
+  }
+
+  function checkPetalTriggersAt(checkX, checkY) {
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const item = grid[r][c];
+        if (!item || !item.dirs || item.dirs.length === 0) continue;
+
+        const cellCenterX = GRID_X + c * CELL_SIZE + CELL_SIZE / 2;
+        const cellCenterY = GRID_Y + r * CELL_SIZE + CELL_SIZE / 2;
+
+        for (const dir of item.dirs) {
+          const padX = cellCenterX + dir.dc * CELL_SIZE;
+          const padY = cellCenterY + dir.dr * CELL_SIZE;
+
+          if (Math.hypot(checkX - padX, checkY - padY) < 18 && item.pulse <= 0) {
+            triggerWeapon(item);
+          }
+        }
+      }
+    }
+  }
+
+  function updateBallPhysics() {
+    if (gameState !== "DEFENSE") return;
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const tile = grid[r][c];
+        if (tile) {
+          if (tile.pulse > 0) tile.pulse--;
+          if (tile.bounceCooldown > 0) tile.bounceCooldown--;
+        }
+      }
+    }
+
+    if (ball.speedBoostGlowTimer > 0) ball.speedBoostGlowTimer--;
+
+    // 1. BALL IN OUTER CIRCULATION PIPE
+    if (ball.inPipe) {
+      const step = 6.0 * ball.speedMultiplier;
+      const prevDist = ball.pipeDist;
+      ball.pipeDist += step;
+      ball.orbitDistanceTraveled += step;
+
+      let crossedZero = false;
+      if (ball.pipeDist >= PIPE_PERIMETER) {
+        ball.pipeDist -= PIPE_PERIMETER;
+        crossedZero = true;
+      }
+
+      const d = ball.pipeDist;
+      if (d < PIPE_W) {
+        ball.x = PIPE_L + d;
+        ball.y = PIPE_T;
+      } else if (d < PIPE_W + PIPE_H) {
+        ball.x = PIPE_R;
+        ball.y = PIPE_T + (d - PIPE_W);
+      } else if (d < 2 * PIPE_W + PIPE_H) {
+        ball.x = PIPE_R - (d - (PIPE_W + PIPE_H));
+        ball.y = PIPE_B;
+      } else {
+        ball.x = PIPE_L;
+        ball.y = PIPE_B - (d - (2 * PIPE_W + PIPE_H));
+      }
+
+      checkPetalTriggersAt(ball.x, ball.y);
+
+      const crossedGate = (prevDist <= GATE_PIPE_DIST && ball.pipeDist >= GATE_PIPE_DIST) ||
+                          (crossedZero && (prevDist <= GATE_PIPE_DIST || ball.pipeDist >= GATE_PIPE_DIST));
+
+      if (crossedGate && ball.orbitDistanceTraveled >= ball.minOrbitDistanceRequired) {
+        ball.inPipe = false;
+        ball.x = GATE_X + 2;
+        ball.y = GATE_Y;
+        
+        // RESET SPEED BACK TO BASE ON RE-ENTRY / CIRCULATION COMPLETION
+        ball.speedMultiplier = 1.0;
+        ball.vx = BASE_SPEED;
+        ball.vy = 0;
+        ball.orbitDistanceTraveled = 0;
+        ball.minOrbitDistanceRequired = 0;
+        addFloatingText("SPEED RESET", GATE_X + 26, GATE_Y, "#38bdf8");
+        playTone(560, "sine", 0.08);
+        updateHUD();
+      }
+      return;
+    }
+
+    // 2. BALL IN PLAYFIELD GRID
+    const nextX = ball.x + ball.vx;
+    const nextY = ball.y + ball.vy;
+
+    // GREEN NOZZLE RE-ENTRY CHECK:
+    // When moving left toward the nozzle aperture, enter pipe circulation directly without bouncing
+    if (ball.vx < 0 && nextX <= GRID_X + 4 && Math.abs(ball.y - GATE_Y) <= GATE_HALF_HEIGHT) {
+      enterPipeLoop(PIPE_L, GATE_Y, true); // Direct gate re-entry: requires full 360-degree rotation
+      addFloatingText("360° LOOP", GATE_X + 26, GATE_Y - 12, "#10b981");
+      return;
+    }
+
+    // BOUNDARY EXITS: Enter pipe at contact point
+    if (
+      nextX < GRID_X ||
+      nextX > GRID_X + GRID_SIZE * CELL_SIZE ||
+      nextY < GRID_Y ||
+      nextY > GRID_Y + GRID_SIZE * CELL_SIZE
+    ) {
+      enterPipeLoop(nextX, nextY, false);
+      return;
+    }
+
+    checkPetalTriggersAt(ball.x, ball.y);
+
+    const targetCol = Math.floor((nextX - GRID_X) / CELL_SIZE);
+    const targetRow = Math.floor((nextY - GRID_Y) / CELL_SIZE);
+
+    let collisionHandled = false;
+
+    if (targetRow >= 0 && targetRow < GRID_SIZE && targetCol >= 0 && targetCol < GRID_SIZE) {
+      const tile = grid[targetRow][targetCol];
+      const cellL = GRID_X + targetCol * CELL_SIZE;
+      const cellR = cellL + CELL_SIZE;
+      const cellT = GRID_Y + targetRow * CELL_SIZE;
+      const cellB = cellT + CELL_SIZE;
+      const cellCenterX = cellL + CELL_SIZE / 2;
+      const cellCenterY = cellT + CELL_SIZE / 2;
+
+      if (tile) {
+        const curSpeed = BASE_SPEED * ball.speedMultiplier;
+
+        if (tile.type === "diag-fwd" && tile.bounceCooldown <= 0) {
+          const vx = ball.vx;
+          const vy = ball.vy;
+
+          if (vx > 0)      { ball.vx = 0; ball.vy = -curSpeed; }
+          else if (vx < 0) { ball.vx = 0; ball.vy = curSpeed; }
+          else if (vy > 0) { ball.vx = -curSpeed; ball.vy = 0; }
+          else if (vy < 0) { ball.vx = curSpeed; ball.vy = 0; }
+
+          if (tile.level >= 2) {
+            const addedBoost = LEVEL_THEMES[tile.level].speedBonus;
+            ball.speedMultiplier = Math.min(2.5, ball.speedMultiplier * (1.0 + addedBoost));
+            ball.vx = Math.sign(ball.vx) * (BASE_SPEED * ball.speedMultiplier);
+            ball.vy = Math.sign(ball.vy) * (BASE_SPEED * ball.speedMultiplier);
+            ball.speedBoostGlowTimer = 25;
+
+            addFloatingText(`+${Math.round(addedBoost * 100)}% SPD`, cellCenterX, cellCenterY - 14, "#10b981");
+            playSpeedBoostSound();
+            for (let i = 0; i < 6; i++) {
+              speedParticles.push({
+                x: cellCenterX,
+                y: cellCenterY,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                life: 18,
+                color: LEVEL_THEMES[tile.level].badge
+              });
+            }
+          } else {
+            playDeflectSound();
+          }
+
+          ball.x = cellCenterX + (ball.vx !== 0 ? Math.sign(ball.vx) * (ball.radius + 4) : 0);
+          ball.y = cellCenterY + (ball.vy !== 0 ? Math.sign(ball.vy) * (ball.radius + 4) : 0);
+
+          tile.pulse = 14;
+          tile.bounceCooldown = 12;
+          collisionHandled = true;
+          updateHUD();
+        }
+        else if (tile.type === "diag-bwd" && tile.bounceCooldown <= 0) {
+          const vx = ball.vx;
+          const vy = ball.vy;
+
+          if (vx > 0)      { ball.vx = 0; ball.vy = curSpeed; }
+          else if (vx < 0) { ball.vx = 0; ball.vy = -curSpeed; }
+          else if (vy > 0) { ball.vx = curSpeed; ball.vy = 0; }
+          else if (vy < 0) { ball.vx = -curSpeed; ball.vy = 0; }
+
+          if (tile.level >= 2) {
+            const addedBoost = LEVEL_THEMES[tile.level].speedBonus;
+            ball.speedMultiplier = Math.min(2.5, ball.speedMultiplier * (1.0 + addedBoost));
+            ball.vx = Math.sign(ball.vx) * (BASE_SPEED * ball.speedMultiplier);
+            ball.vy = Math.sign(ball.vy) * (BASE_SPEED * ball.speedMultiplier);
+            ball.speedBoostGlowTimer = 25;
+
+            addFloatingText(`+${Math.round(addedBoost * 100)}% SPD`, cellCenterX, cellCenterY - 14, "#10b981");
+            playSpeedBoostSound();
+            for (let i = 0; i < 6; i++) {
+              speedParticles.push({
+                x: cellCenterX,
+                y: cellCenterY,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                life: 18,
+                color: LEVEL_THEMES[tile.level].badge
+              });
+            }
+          } else {
+            playDeflectSound();
+          }
+
+          ball.x = cellCenterX + (ball.vx !== 0 ? Math.sign(ball.vx) * (ball.radius + 4) : 0);
+          ball.y = cellCenterY + (ball.vy !== 0 ? Math.sign(ball.vy) * (ball.radius + 4) : 0);
+
+          tile.pulse = 14;
+          tile.bounceCooldown = 12;
+          collisionHandled = true;
+          updateHUD();
+        }
+        else if (!tile.type.startsWith("diag")) {
+          const spd = BASE_SPEED * ball.speedMultiplier;
+          if (ball.vx > 0) {
+            ball.x = cellL - ball.radius - 2;
+            ball.vx = -spd;
+          } else if (ball.vx < 0) {
+            ball.x = cellR + ball.radius + 2;
+            ball.vx = spd;
+          } else if (ball.vy > 0) {
+            ball.y = cellT - ball.radius - 2;
+            ball.vy = -spd;
+          } else if (ball.vy < 0) {
+            ball.y = cellB + ball.radius + 2;
+            ball.vy = spd;
+          }
+          tile.pulse = 10;
+          collisionHandled = true;
+          playBounceSound();
+        }
+      }
+    }
+
+    if (!collisionHandled) {
+      ball.x = nextX;
+      ball.y = nextY;
+    }
+  }
+
+  function triggerWeapon(tower) {
+    if (enemies.length === 0) return;
+    tower.pulse = 16;
+    playFireSound(tower.type);
+
+    const cx = GRID_X + tower.c * CELL_SIZE + CELL_SIZE / 2;
+    const cy = GRID_Y + tower.r * CELL_SIZE + CELL_SIZE / 2;
+
+    const sortedEnemies = [...enemies].sort((a, b) => b.y - a.y);
+    const prime = sortedEnemies[0];
+    const dmg = tower.baseDamage || 30;
+
+    if (tower.type === "rocket") {
+      projectiles.push({
+        x: cx,
+        y: cy,
+        target: prime,
+        speed: 11,
+        damage: dmg,
+        type: "rocket"
+      });
+    } else if (tower.type === "tesla") {
+      const chained = sortedEnemies.slice(0, 3);
+      for (const target of chained) {
+        target.hp -= dmg;
+        fxRays.push({
+          x1: cx, y1: cy,
+          x2: target.x, y2: target.y,
+          life: 8,
+          color: LEVEL_THEMES[tower.level].badge
+        });
+        addFloatingText(`-${dmg}`, target.x + (Math.random()*14 - 7), target.y - 10, LEVEL_THEMES[tower.level].badge);
+        playEnemyHitSound();
+        if (target.hp <= 0) eliminateEnemy(target);
+      }
+    } else if (tower.type === "bomb") {
+      explosions.push({
+        x: prime.x,
+        y: prime.y,
+        radius: 46 + tower.level * 4,
+        life: 12
+      });
+      for (const e of enemies) {
+        const d = Math.hypot(e.x - prime.x, e.y - prime.y);
+        if (d < 50 + tower.level * 4) {
+          e.hp -= dmg;
+          addFloatingText(`-${dmg}`, e.x, e.y - 12, "#fbbf24");
+        }
+      }
+      playEnemyHitSound();
+      enemies = enemies.filter(e => {
+        if (e.hp <= 0) {
+          eliminateEnemy(e);
+          return false;
+        }
+        return true;
+      });
+    }
+  }
+
+  function eliminateEnemy(e) {
+    gold += e.isBrute ? 10 : 3;
+    updateHUD();
+  }
+
+  function spawnInvader() {
+    const bruteChance = round === 1 ? 0 : Math.min(0.35, 0.12 + (round - 2) * 0.06);
+    const isBrute = Math.random() < bruteChance;
+
+    const baseHp = 26 + round * 14;
+    enemies.push({
+      x: 35 + Math.random() * (canvas.width - 70),
+      y: -20,
+      hp: isBrute ? baseHp * 3.8 : baseHp,
+      maxHp: isBrute ? baseHp * 3.8 : baseHp,
+      speed: isBrute ? 0.42 : (0.58 + round * 0.04),
+      radius: isBrute ? 17 : 11,
+      isBrute: isBrute,
+      dps: isBrute ? 3 : 1,
+      isAtWall: false,
+      attackTimer: 0,
+      wiggle: Math.random() * 10
+    });
+    enemiesSpawned++;
+  }
+
+  function updateCombat() {
+    if (gameState !== "DEFENSE") return;
+
+    if (wallDamageFlash > 0) wallDamageFlash--;
+
+    spawnClock++;
+    if (spawnClock > 60 && enemiesSpawned < totalRoundEnemies) {
+      spawnInvader();
+      spawnClock = 0;
+    }
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      e.wiggle += 0.15;
+
+      if (!e.isAtWall) {
+        e.y += e.speed;
+        if (e.y >= WALL_Y - e.radius - 2) {
+          e.y = WALL_Y - e.radius - 2;
+          e.isAtWall = true;
+        }
+      } else {
+        e.attackTimer++;
+        if (e.attackTimer >= 60) {
+          e.attackTimer = 0;
+          hp -= e.dps;
+          wallDamageFlash = 8;
+          playWallDamageSound();
+          addFloatingText(`-${e.dps}`, e.x, WALL_Y + 10, "#f43f5e");
+          updateHUD();
+
+          if (hp <= 0) {
+            handleGameOver();
+            return;
+          }
+        }
+      }
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const p = projectiles[i];
+      if (!enemies.includes(p.target)) {
+        p.target = enemies[0] || null;
+      }
+
+      if (!p.target) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+
+      const dx = p.target.x - p.x;
+      const dy = p.target.y - p.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < p.speed) {
+        p.target.hp -= p.damage;
+        addFloatingText(`-${p.damage}`, p.target.x, p.target.y - 12, "#ff4d6d");
+        playEnemyHitSound();
+        if (p.target.hp <= 0) {
+          const idx = enemies.indexOf(p.target);
+          if (idx > -1) {
+            enemies.splice(idx, 1);
+            eliminateEnemy(p.target);
+          }
+        }
+        projectiles.splice(i, 1);
+      } else {
+        p.x += (dx / dist) * p.speed;
+        p.y += (dy / dist) * p.speed;
+      }
+    }
+
+    for (let i = fxRays.length - 1; i >= 0; i--) {
+      fxRays[i].life--;
+      if (fxRays[i].life <= 0) fxRays.splice(i, 1);
+    }
+    for (let i = explosions.length - 1; i >= 0; i--) {
+      explosions[i].life--;
+      if (explosions[i].life <= 0) explosions.splice(i, 1);
+    }
+    for (let i = floatTexts.length - 1; i >= 0; i--) {
+      floatTexts[i].y += floatTexts[i].vy;
+      floatTexts[i].life--;
+      if (floatTexts[i].life <= 0) floatTexts.splice(i, 1);
+    }
+    for (let i = speedParticles.length - 1; i >= 0; i--) {
+      const sp = speedParticles[i];
+      sp.x += sp.vx;
+      sp.y += sp.vy;
+      sp.life--;
+      if (sp.life <= 0) speedParticles.splice(i, 1);
+    }
+
+    if (enemiesSpawned >= totalRoundEnemies && enemies.length === 0) {
+      finishRoundVictory();
+    }
+  }
+
+  function drawDefenseLane() {
+    ctx.fillStyle = "#f8fafc";
+    ctx.fillRect(0, 0, canvas.width, LANE_HEIGHT);
+
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 18) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, LANE_HEIGHT); ctx.stroke();
+    }
+    for (let y = 0; y < LANE_HEIGHT; y += 18) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+
+    const isFlashing = wallDamageFlash > 0;
+    ctx.fillStyle = isFlashing ? "#ef4444" : "#0284c7";
+    ctx.fillRect(0, LANE_HEIGHT, canvas.width, DIVIDER_HEIGHT);
+
+    for (let bx = 0; bx < canvas.width; bx += 22) {
+      ctx.fillStyle = isFlashing ? "#fca5a5" : "#38bdf8";
+      ctx.fillRect(bx, LANE_HEIGHT - 8, 12, 10);
+      ctx.strokeStyle = isFlashing ? "#b91c1c" : "#0369a1";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(bx, LANE_HEIGHT - 8, 12, 10);
+    }
+
+    for (const e of enemies) {
+      ctx.save();
+      const wobble = Math.sin(e.wiggle) * (e.isBrute ? 1.0 : 1.8);
+      const attackShake = e.isAtWall ? Math.sin(e.attackTimer * 0.6) * 2 : 0;
+      ctx.translate(e.x + wobble, e.y + attackShake);
+
+      if (e.isBrute) {
+        ctx.fillStyle = "#450a0a";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, e.radius, e.radius * 1.15, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#dc2626";
+        ctx.beginPath();
+        ctx.moveTo(-10, -12); ctx.lineTo(-18, -26); ctx.lineTo(-4, -16);
+        ctx.moveTo(10, -12); ctx.lineTo(18, -26); ctx.lineTo(4, -16);
+        ctx.fill();
+
+        ctx.fillStyle = "#fef08a";
+        ctx.beginPath();
+        ctx.arc(-5, -2, 3.8, 0, Math.PI * 2);
+        ctx.arc(5, -2, 3.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#b91c1c";
+        ctx.beginPath();
+        ctx.arc(-5, -2, 1.8, 0, Math.PI * 2);
+        ctx.arc(5, -2, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (e.isAtWall) {
+          ctx.strokeStyle = "#f87171";
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-8, e.radius); ctx.lineTo(-12, e.radius + 6);
+          ctx.moveTo(8, e.radius); ctx.lineTo(12, e.radius + 6);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = "#0f172a";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, e.radius, e.radius * 1.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(-3.5, -2, 2.8, 0, Math.PI * 2);
+        ctx.arc(3.5, -2, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#000000";
+        ctx.beginPath();
+        ctx.arc(-3.5, -1.8, 1.3, 0, Math.PI * 2);
+        ctx.arc(3.5, -1.8, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const hpPct = Math.max(0, e.hp / e.maxHp);
+      const barW = e.isBrute ? 32 : 22;
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.fillRect(-barW/2, -e.radius - 8, barW, 4);
+      ctx.fillStyle = e.isBrute ? "#ef4444" : "#22c55e";
+      ctx.fillRect(-barW/2, -e.radius - 8, barW * hpPct, 4);
+
+      ctx.restore();
+    }
+
+    for (const p of projectiles) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      if (p.target) {
+        const ang = Math.atan2(p.target.y - p.y, p.target.x - p.x);
+        ctx.rotate(ang + Math.PI/2);
+      }
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.moveTo(0, -7); ctx.lineTo(4, 5); ctx.lineTo(-4, 5);
+      ctx.fill();
+      ctx.fillStyle = "#fbbf24";
+      ctx.beginPath();
+      ctx.arc(0, 7, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const arc of fxRays) {
+      ctx.strokeStyle = arc.color;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(arc.x1, arc.y1);
+      const midX = (arc.x1 + arc.x2) / 2 + (Math.random() * 16 - 8);
+      const midY = (arc.y1 + arc.y2) / 2 + (Math.random() * 16 - 8);
+      ctx.lineTo(midX, midY);
+      ctx.lineTo(arc.x2, arc.y2);
+      ctx.stroke();
+    }
+
+    for (const exp of explosions) {
+      ctx.fillStyle = "rgba(245, 158, 11, 0.45)";
+      ctx.beginPath();
+      ctx.arc(exp.x, exp.y, exp.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+    }
+
+    for (const ft of floatTexts) {
+      ctx.font = "bold 13px 'Fredoka', sans-serif";
+      ctx.fillStyle = ft.color;
+      ctx.textAlign = "center";
+      ctx.fillText(ft.text, ft.x, ft.y);
+    }
+  }
+
+  function drawChamberArea() {
+    ctx.fillStyle = "#0369a1";
+    ctx.fillRect(0, WALL_Y, canvas.width, TRAY_Y - WALL_Y);
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 18;
+    ctx.strokeRect(PIPE_L, PIPE_T + 4, PIPE_W, PIPE_H);
+
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 16;
+    ctx.strokeRect(PIPE_L, PIPE_T, PIPE_W, PIPE_H);
+
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 10;
+    ctx.strokeRect(PIPE_L, PIPE_T, PIPE_W, PIPE_H);
+
+    ctx.fillStyle = "#94a3b8";
+    for (let c = 0; c <= GRID_SIZE; c++) {
+      ctx.fillRect(GRID_X + c * CELL_SIZE - 4, PIPE_T - 8, 8, 16);
+      ctx.fillRect(GRID_X + c * CELL_SIZE - 4, PIPE_B - 8, 8, 16);
+      ctx.fillRect(PIPE_L - 8, GRID_Y + c * CELL_SIZE - 4, 16, 8);
+      ctx.fillRect(PIPE_R - 8, GRID_Y + c * CELL_SIZE - 4, 16, 8);
+    }
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillRect(GRID_X, GRID_Y, GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE);
+
+    ctx.strokeStyle = "#0284c7";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i <= GRID_SIZE; i++) {
+      ctx.beginPath();
+      ctx.moveTo(GRID_X + i * CELL_SIZE, GRID_Y);
+      ctx.lineTo(GRID_X + i * CELL_SIZE, GRID_Y + GRID_SIZE * CELL_SIZE);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(GRID_X, GRID_Y + i * CELL_SIZE);
+      ctx.lineTo(GRID_X + GRID_SIZE * CELL_SIZE, GRID_Y + i * CELL_SIZE);
+      ctx.stroke();
+    }
+
+    // Green Launch & Re-Entry Nozzle Gate
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(PIPE_L - 6, GATE_Y - 14, 20, 28);
+    ctx.strokeStyle = "#15803d";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(PIPE_L - 6, GATE_Y - 14, 20, 28);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(PIPE_L - 1, GATE_Y - 6);
+    ctx.lineTo(PIPE_L + 8, GATE_Y);
+    ctx.lineTo(PIPE_L - 1, GATE_Y + 6);
+    ctx.fill();
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        const item = grid[r][c];
+        if (!item) continue;
+
+        const x = GRID_X + c * CELL_SIZE;
+        const y = GRID_Y + r * CELL_SIZE;
+        const cx = x + CELL_SIZE / 2;
+        const cy = y + CELL_SIZE / 2;
+        const theme = LEVEL_THEMES[item.level] || LEVEL_THEMES[1];
+
+        if (item.dirs && item.dirs.length > 0) {
+          for (const dir of item.dirs) {
+            const tx = cx + dir.dc * CELL_SIZE;
+            const ty = cy + dir.dr * CELL_SIZE;
+
+            ctx.strokeStyle = item.pulse > 0 ? "#ffffff" : theme.badge;
+            ctx.lineWidth = 4.5;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(tx, ty);
+            ctx.stroke();
+
+            ctx.fillStyle = item.pulse > 0 ? "#ffffff" : theme.badge;
+            ctx.beginPath();
+            ctx.arc(tx, ty, 11, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#0f172a";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        ctx.fillStyle = item.pulse > 0 ? "#fef08a" : theme.bg;
+        ctx.fillRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+        ctx.strokeStyle = theme.border;
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(x + 5, y + 5, CELL_SIZE - 10, CELL_SIZE - 10);
+
+        if (item.type.startsWith("diag")) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 6.5;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          if (item.type === "diag-fwd") {
+            ctx.moveTo(x + 12, y + CELL_SIZE - 12);
+            ctx.lineTo(x + CELL_SIZE - 12, y + 12);
+          } else {
+            ctx.moveTo(x + 12, y + 12);
+            ctx.lineTo(x + CELL_SIZE - 12, y + CELL_SIZE - 12);
+          }
+          ctx.stroke();
+          ctx.lineCap = "butt";
+
+          if (item.level >= 2) {
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 8px 'Fredoka', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            const spdText = `+${Math.round(theme.speedBonus * 100)}%`;
+            ctx.fillText(spdText, cx, y + 7);
+          }
+        } else {
+          ctx.font = "20px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(item.icon, cx, cy - 2);
+        }
+
+        ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+        ctx.fillRect(x + 6, y + CELL_SIZE - 16, CELL_SIZE - 12, 11);
+        ctx.fillStyle = theme.badge;
+        ctx.font = "bold 9px 'Fredoka', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(theme.label, cx, y + CELL_SIZE - 11);
+      }
+    }
+
+    for (const sp of speedParticles) {
+      ctx.fillStyle = sp.color;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.save();
+    if (ball.speedBoostGlowTimer > 0) {
+      ctx.shadowColor = "#34d399";
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = "#a7f3d0";
+    } else {
+      ctx.fillStyle = "#ffffff";
+    }
+
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#0284c7";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = ball.speedBoostGlowTimer > 0 ? "rgba(52, 211, 153, 0.6)" : "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(ball.x - ball.vx*1.4, ball.y - ball.vy*1.4, ball.radius * 0.75, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawShopDrawer() {
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, TRAY_Y, canvas.width, TRAY_HEIGHT);
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, TRAY_Y, canvas.width, TRAY_HEIGHT);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "bold 11px 'Fredoka', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText("TACTICAL ARMORY (MERGE SAME TYPE & SAME LEVEL)", canvas.width / 2, TRAY_Y + 12);
+
+    for (let i = 0; i < TRAY_SLOTS; i++) {
+      const sx = TRAY_START_X + i * (SLOT_SIZE + SLOT_GAP);
+      const sy = TRAY_Y + 34;
+
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(sx, sy, SLOT_SIZE, SLOT_SIZE);
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx, sy, SLOT_SIZE, SLOT_SIZE);
+
+      const item = shopTray[i];
+      if (item && !(draggingItem && dragSource === "shop" && dragOrigin.index === i)) {
+        const theme = LEVEL_THEMES[item.level] || LEVEL_THEMES[1];
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(sx + 7, sy + 7, SLOT_SIZE - 14, SLOT_SIZE - 14);
+        ctx.strokeStyle = theme.border;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(sx + 7, sy + 7, SLOT_SIZE - 14, SLOT_SIZE - 14);
+
+        if (item.type.startsWith("diag")) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 4.5;
+          ctx.lineCap = "round";
+          ctx.beginPath();
+          if (item.type === "diag-fwd") {
+            ctx.moveTo(sx + 14, sy + SLOT_SIZE - 14);
+            ctx.lineTo(sx + SLOT_SIZE - 14, sy + 14);
+          } else {
+            ctx.moveTo(sx + 14, sy + 14);
+            ctx.lineTo(sx + SLOT_SIZE - 14, sy + SLOT_SIZE - 14);
+          }
+          ctx.stroke();
+          ctx.lineCap = "butt";
+        } else {
+          ctx.font = "20px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(item.icon, sx + SLOT_SIZE / 2, sy + SLOT_SIZE / 2 - 2);
+        }
+
+        if (item.dirs && item.dirs.length > 0) {
+          for (const d of item.dirs) {
+            ctx.fillStyle = theme.badge;
+            const dotX = sx + SLOT_SIZE / 2 + d.dc * 17;
+            const dotY = sy + SLOT_SIZE / 2 + d.dr * 17;
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#0f172a";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
+        ctx.fillStyle = gold >= item.cost ? "#22c55e" : "#ef4444";
+        ctx.font = "bold 11px 'Fredoka', sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(`$${item.cost}`, sx + SLOT_SIZE / 2, sy + SLOT_SIZE + 12);
+      }
+    }
+
+    if (draggingItem) {
+      ctx.save();
+      ctx.globalAlpha = 0.88;
+
+      const theme = LEVEL_THEMES[draggingItem.level] || LEVEL_THEMES[1];
+
+      if (draggingItem.dirs && draggingItem.dirs.length > 0) {
+        for (const dir of draggingItem.dirs) {
+          const gtx = pointerX + dir.dc * CELL_SIZE;
+          const gty = pointerY + dir.dr * CELL_SIZE;
+
+          ctx.strokeStyle = theme.badge;
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(pointerX, pointerY);
+          ctx.lineTo(gtx, gty);
+          ctx.stroke();
+
+          ctx.fillStyle = theme.badge;
+          ctx.beginPath();
+          ctx.arc(gtx, gty, 11, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#0f172a";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+
+      ctx.fillStyle = theme.bg;
+      ctx.fillRect(pointerX - 22, pointerY - 22, 44, 44);
+      ctx.strokeStyle = theme.border;
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(pointerX - 22, pointerY - 22, 44, 44);
+
+      if (draggingItem.type.startsWith("diag")) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 5.5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        if (draggingItem.type === "diag-fwd") {
+          ctx.moveTo(pointerX - 14, pointerY + 14);
+          ctx.lineTo(pointerX + 14, pointerY - 14);
+        } else {
+          ctx.moveTo(pointerX - 14, pointerY - 14);
+          ctx.lineTo(pointerX + 14, pointerY + 14);
+        }
+        ctx.stroke();
+      } else {
+        ctx.font = "24px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(draggingItem.icon, pointerX, pointerY);
+      }
+
+      ctx.restore();
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawDefenseLane();
+    drawChamberArea();
+    drawShopDrawer();
+  }
+
+  function gameLoop() {
+    updateBallPhysics();
+    updateCombat();
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  updateHUD();
+  requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
